@@ -1,0 +1,62 @@
+x-app: &app
+  build: .
+  environment:
+    POSTGRES_HOST: postgres
+    POSTGRES_PORT: 5432
+    POSTGRES_USER: ${POSTGRES_USER:-meridian}
+    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-meridian}
+    POSTGRES_DB: ${POSTGRES_DB:-tva}
+    VIES_DELAI_S: ${VIES_DELAI_S:-1.0}
+    TTL_VALIDE_H: ${TTL_VALIDE_H:-24}
+    TTL_INVALIDE_H: ${TTL_INVALIDE_H:-24}
+    TTL_CAMPAGNE_J: ${TTL_CAMPAGNE_J:-30}
+  volumes:
+    - ./docs:/app/docs     # le rapport généré atterrit dans docs/ du dépôt
+    - ./logs:/app/logs     # journaux de campagne consultables depuis l'hôte
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: meridian_tva_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-meridian}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-meridian}
+      POSTGRES_DB: ${POSTGRES_DB:-tva}
+    ports:
+      - "${POSTGRES_PORT:-5435}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-meridian} -d ${POSTGRES_DB:-tva}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  init:
+    <<: *app
+    command: ["python", "-m", "tva.cli", "charger"]
+    restart: "no"
+
+  api:
+    <<: *app
+    container_name: meridian_tva_api
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  cli:
+    <<: *app
+    entrypoint: ["python", "-m", "tva.cli"]
+    profiles: ["cli"]
+
+volumes:
+  pgdata:
